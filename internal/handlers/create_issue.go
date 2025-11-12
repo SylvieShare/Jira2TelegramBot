@@ -13,7 +13,7 @@ func CreateIssue() tg.HandlerFunc {
 	return func(c *tg.Ctx) error {
 		messagesInHistory := c.HistoryMessages.GetMessages(c.Upd.Message.Chat.ID)
 		titleIssue := text.TextTitleIssue(c.Upd.Message.Chat.Title)
-		descriptionADF := text.TextDescriptionADF(messagesInHistory, "")
+		descriptionADF := text.TextDescriptionADF(titleIssue, messagesInHistory, "")
 		key, _, err := c.Jira.CreateIssue(c.Std, titleIssue, descriptionADF)
 		if err != nil {
 			_, sendErr := c.Bot.Send(tgbotapi.NewMessage(c.Upd.Message.Chat.ID, text.TextErrorCreateTicket(err)))

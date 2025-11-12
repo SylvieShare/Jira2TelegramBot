@@ -93,7 +93,6 @@ func TextGetStatus(issue *jira.IssueStatus, summary, author string) string {
 	if strings.TrimSpace(assignee) == "" {
 		assignee = "Не назначен"
 	}
-	priority := issue.Priority
 	created := issue.Created
 	updated := issue.Updated
 
@@ -101,7 +100,6 @@ func TextGetStatus(issue *jira.IssueStatus, summary, author string) string {
 		"📚 <b>Название:</b> <code>%s</code>\n"+
 			"🗝️ <b>Ключ:</b> <code>%s</code>\n\n"+
 			"📌 <b>Статус:</b> %s\n"+
-			"⚡ <b>Приоритет:</b> %s\n"+
 			"👤 <b>Ответственный:</b> %s\n\n"+
 			"🕑 <b>Создан:</b> %s\n"+
 			"♻️ <b>Обновлён:</b> %s\n\n"+
@@ -110,7 +108,6 @@ func TextGetStatus(issue *jira.IssueStatus, summary, author string) string {
 		EscapeHTML(summary),
 		EscapeHTML(issue.Key),
 		GetStatusWithIcon(status),
-		GetPriorityWithIcon(priority),
 		EscapeHTML(assignee),
 		FormatDate(created),
 		FormatDate(updated),
@@ -166,70 +163,8 @@ func TextTelegramTicketsMessage(tickets []store.CreatedTicket, chatTitle string)
 		}
 	}
 
-	b.WriteString("\nОтправьте <code>/status_issue KEY-123</code>, чтобы посмотреть детали конкретного тикета.")
+	b.WriteString("\nОтправьте <code>/status_issue TEC-123</code>, чтобы посмотреть детали конкретного тикета.")
 	return b.String()
-}
-
-// TextDescriptionADF собирает ADF-документ Jira для описания задачи на основе истории чата.
-func TextDescriptionADF(historyMessages []tgbotapi.Message, urlChat string) map[string]any {
-	doc := map[string]any{
-		"type":    "doc",
-		"version": 1,
-		"content": []any{},
-	}
-	appendBlock := func(b any) { doc["content"] = append(doc["content"].([]any), b) }
-
-	if len(historyMessages) == 0 {
-		appendBlock(map[string]any{
-			"type":    "paragraph",
-			"content": []any{map[string]any{"type": "text", "text": "История сообщений пуста"}},
-		})
-		return doc
-	}
-
-	chat := historyMessages[0].Chat
-	chatTitle := strings.TrimSpace(chat.Title)
-	headingText := "Чат из переписки в Telegram"
-	if chatTitle != "" {
-		headingText += ": " + chatTitle
-	}
-	appendBlock(map[string]any{
-		"type":    "heading",
-		"attrs":   map[string]any{"level": 3},
-		"content": []any{map[string]any{"type": "text", "text": headingText}},
-	})
-	if strings.TrimSpace(urlChat) != "" && chatTitle != "" {
-		appendBlock(map[string]any{
-			"type": "paragraph",
-			"content": []any{
-				map[string]any{
-					"type":  "text",
-					"text":  chatTitle,
-					"marks": []any{map[string]any{"type": "link", "attrs": map[string]any{"href": urlChat}}},
-				},
-			},
-		})
-	}
-
-	for _, m := range historyMessages {
-		ts := int64(m.Date)
-		dateTime := time.Unix(ts, 0).In(time.Local).Format("02.01.06 15:04")
-		user := BuildFullNameUser(m.From)
-		appendBlock(map[string]any{
-			"type":    "paragraph",
-			"content": []any{map[string]any{"type": "text", "text": dateTime + " — " + user + ":", "marks": []any{map[string]any{"type": "strong"}}}},
-		})
-		appendBlock(map[string]any{
-			"type":  "panel",
-			"attrs": map[string]any{"panelType": "info"},
-			"content": []any{map[string]any{
-				"type":    "paragraph",
-				"content": []any{map[string]any{"type": "text", "text": m.Text}},
-			}},
-		})
-	}
-	appendBlock(map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": "Сформировано автоматически из переписки Telegram", "marks": []any{map[string]any{"type": "em"}}}}})
-	return doc
 }
 
 // TextGetStatusNotFound — если тикет не найден.
@@ -300,4 +235,74 @@ func TextJiraCommentUserFromTelegram(text string, user *tgbotapi.User, chatTitle
 	}
 
 	return b.String()
+}
+
+// TextDescriptionADF собирает ADF-документ Jira для описания задачи на основе истории чата.
+func TextDescriptionADF(titleIssue string, historyMessages []tgbotapi.Message, urlChat string) map[string]any {
+	doc := map[string]any{
+		"type":    "doc",
+		"version": 1,
+		"content": []any{},
+	}
+	appendBlock := func(b any) { doc["content"] = append(doc["content"].([]any), b) }
+
+	if titleIssue != "" {
+		appendBlock(map[string]any{
+			"type":    "heading",
+			"attrs":   map[string]any{"level": 3},
+			"content": []any{map[string]any{"type": "text", "text": "Тема: " + titleIssue}},
+		})
+	}
+
+	if len(historyMessages) == 0 {
+		appendBlock(map[string]any{
+			"type":    "paragraph",
+			"content": []any{map[string]any{"type": "text", "text": "История сообщений пуста"}},
+		})
+		return doc
+	}
+
+	chat := historyMessages[0].Chat
+	chatTitle := strings.TrimSpace(chat.Title)
+	headingText := "Чат из переписки в Telegram"
+	if chatTitle != "" {
+		headingText += ": " + chatTitle
+	}
+	appendBlock(map[string]any{
+		"type":    "heading",
+		"attrs":   map[string]any{"level": 3},
+		"content": []any{map[string]any{"type": "text", "text": headingText}},
+	})
+	if strings.TrimSpace(urlChat) != "" && chatTitle != "" {
+		appendBlock(map[string]any{
+			"type": "paragraph",
+			"content": []any{
+				map[string]any{
+					"type":  "text",
+					"text":  chatTitle,
+					"marks": []any{map[string]any{"type": "link", "attrs": map[string]any{"href": urlChat}}},
+				},
+			},
+		})
+	}
+
+	for _, m := range historyMessages {
+		ts := int64(m.Date)
+		dateTime := time.Unix(ts, 0).In(time.Local).Format("02.01.06 15:04")
+		user := BuildFullNameUser(m.From)
+		appendBlock(map[string]any{
+			"type":    "paragraph",
+			"content": []any{map[string]any{"type": "text", "text": dateTime + " — " + user + ":", "marks": []any{map[string]any{"type": "strong"}}}},
+		})
+		appendBlock(map[string]any{
+			"type":  "panel",
+			"attrs": map[string]any{"panelType": "info"},
+			"content": []any{map[string]any{
+				"type":    "paragraph",
+				"content": []any{map[string]any{"type": "text", "text": m.Text}},
+			}},
+		})
+	}
+	appendBlock(map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": "Сформировано автоматически из переписки Telegram", "marks": []any{map[string]any{"type": "em"}}}}})
+	return doc
 }
