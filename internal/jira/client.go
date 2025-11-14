@@ -82,6 +82,7 @@ func (c *Client) CreateIssue(ctx context.Context, summary string, description an
 		"project":   map[string]any{"key": c.projectKey},
 		"issuetype": issueTypeField,
 		"summary":   summary,
+		"labels":    []string{"telegram"},
 	}
 	switch d := description.(type) {
 	case nil:
