@@ -2,8 +2,11 @@
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 
 	"telegram-bot-jira/internal/config"
@@ -63,7 +66,10 @@ func (b *Bot) Run(ctx context.Context) error {
 					ReactionEmoji:    b.cfg.TelegramReactionEmoji,
 					ProjectKeyRegexp: regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(b.cfg.JiraProjectKey) + `-\d+\b`),
 				}
-				_ = b.dispatch.Dispatch(c)
+				err := b.dispatch.Dispatch(c)
+				if err != nil {
+					b.log.Error("failed to dispatch update", "err", err)
+				}
 			}
 		}(i)
 	}
@@ -99,4 +105,37 @@ func (b *Bot) initCommands() error {
 
 	_, err := b.api.Request(tgbotapi.NewSetMyCommands(commands...))
 	return err
+}
+
+type reactionType struct {
+	Type  string `json:"type"`
+	Emoji string `json:"emoji,omitempty"`
+}
+
+func (ctx *Ctx) ReactToMessage(msg *tgbotapi.Message) {
+	if msg == nil {
+		return
+	}
+
+	emoji := strings.TrimSpace(ctx.ReactionEmoji)
+	if emoji != "" {
+		payload, err := json.Marshal([]reactionType{
+			{Type: "emoji", Emoji: emoji},
+		})
+		if err != nil {
+			ctx.Log.Error("Failed to set message reaction", "emoji", emoji, "err", err)
+			return
+		}
+
+		params := tgbotapi.Params{
+			"chat_id":    strconv.FormatInt(msg.Chat.ID, 10),
+			"message_id": strconv.Itoa(msg.MessageID),
+			"reaction":   string(payload),
+		}
+
+		_, err = ctx.Bot.MakeRequest("setMessageReaction", params)
+		if err != nil {
+			ctx.Log.Error("Failed to set message reaction", "emoji", emoji, "err", err)
+		}
+	}
 }

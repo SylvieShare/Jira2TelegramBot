@@ -35,6 +35,8 @@ func main() {
 	dispatcher.OnCreateIssue = handlers.CreateIssue()
 	dispatcher.OnGetIssue = handlers.GetIssue()
 	dispatcher.OnCallback = handlers.Callback()
+	dispatcher.OnReplyBotForComment = handlers.ReplyBotForComment()
+	dispatcher.OnMediaGroup = handlers.MediaReplyBotForComment()
 
 	b := tg.New(tgApi, logger, cfg, dispatcher, jiraClient)
 

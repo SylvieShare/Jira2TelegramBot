@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
+	"telegram-bot-jira/internal/common"
 	"telegram-bot-jira/internal/config"
 	"time"
 )
@@ -673,4 +675,377 @@ func (c *Client) GetComments(ctx context.Context, key string) ([]Comment, error)
 	}
 
 	return raw.Comments, nil
+}
+
+// AddAttachment uploads a file and attaches it to a Jira issue
+func (c *Client) AddAttachment(ctx context.Context, key string, filename string, fileData []byte) (string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", errors.New("jira: issue key is required")
+	}
+	if filename == "" {
+		return "", errors.New("jira: filename is required")
+	}
+	if len(fileData) == 0 {
+		return "", errors.New("jira: file data is empty")
+	}
+
+	url := c.baseURL + "/rest/api/3/issue/" + key + "/attachments"
+	
+	// Create multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return "", err
+	}
+	
+	_, err = part.Write(fileData)
+	if err != nil {
+		return "", err
+	}
+	
+	err = writer.Close()
+	if err != nil {
+		return "", err
+	}
+	
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+	if err != nil {
+		return "", err
+	}
+	
+	req.Header.Set("Authorization", c.authHeader)
+	req.Header.Set("X-Atlassian-Token", "no-check")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("jira: add attachment failed (%d): %s", resp.StatusCode, truncate(string(data), 512))
+	}
+	
+	// Parse response to get attachment ID
+	var attachments []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(data, &attachments); err != nil {
+		return "", err
+	}
+	
+	if len(attachments) == 0 {
+		return "", errors.New("jira: no attachment returned")
+	}
+	
+	return attachments[0].ID, nil
+}
+
+// AddCommentWithEmbeddedImages adds a comment with embedded images to a Jira issue
+func (c *Client) AddCommentWithEmbeddedImages(ctx context.Context, key, body string, imageUrls []string) error {
+	key = strings.TrimSpace(key)
+	body = strings.TrimSpace(body)
+	if key == "" {
+		return errors.New("jira: issue key is required")
+	}
+	if body == "" && len(imageUrls) == 0 {
+		return errors.New("jira: comment body and images are empty")
+	}
+	
+	// First, upload images as attachments
+	var attachmentIds []string
+	for i, imageUrl := range imageUrls {
+		if imageUrl != "" {
+			// Download the image
+			resp, err := http.Get(imageUrl)
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to download image %s: %v\n", imageUrl, err)
+				continue
+			}
+			defer resp.Body.Close()
+			
+			if resp.StatusCode != http.StatusOK {
+				fmt.Printf("DEBUG: Failed to download image %s: HTTP %d\n", imageUrl, resp.StatusCode)
+				continue
+			}
+			
+			var buf bytes.Buffer
+			_, err = buf.ReadFrom(resp.Body)
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to read image data %s: %v\n", imageUrl, err)
+				continue
+			}
+			
+			// Upload as attachment
+			filename := fmt.Sprintf("telegram_image_%d.jpg", i)
+			attachmentId, err := c.AddAttachment(ctx, key, filename, buf.Bytes())
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to upload attachment %s: %v\n", filename, err)
+				continue
+			}
+			
+			attachmentIds = append(attachmentIds, attachmentId)
+			fmt.Printf("DEBUG: Uploaded attachment %s with ID %s\n", filename, attachmentId)
+		}
+	}
+	
+	// Create ADF content for the comment
+	content := []any{}
+	
+	// Add text content if provided
+	if body != "" {
+		paragraph := map[string]any{
+			"type":    "paragraph",
+			"content": []any{},
+		}
+		lines := strings.Split(body, "\n")
+		for i, line := range lines {
+			if i > 0 {
+				paragraph["content"] = append(paragraph["content"].([]any), map[string]any{"type": "hardBreak"})
+			}
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			paragraph["content"] = append(paragraph["content"].([]any), map[string]any{
+				"type": "text",
+				"text": line,
+			})
+		}
+		if len(paragraph["content"].([]any)) == 0 {
+			paragraph["content"] = append(paragraph["content"].([]any), map[string]any{
+				"type": "text",
+				"text": body,
+			})
+		}
+		content = append(content, paragraph)
+	}
+	
+	// Add embedded images if provided
+	for _, id := range attachmentIds {
+		if id != "" {
+			// Create an inline image using ADF format with attachment reference
+			imageBlock := map[string]any{
+				"type": "paragraph",
+				"content": []any{
+					map[string]any{
+						"type": "inlineCard",
+						"attrs": map[string]any{
+							"url": fmt.Sprintf("%s/secure/attachment/%s/", c.baseURL, id),
+						},
+					},
+				},
+			}
+			content = append(content, imageBlock)
+		}
+	}
+	
+	commentBody := map[string]any{
+		"type":    "doc",
+		"version": 1,
+		"content": content,
+	}
+	
+	payload, _ := json.Marshal(map[string]any{
+		"body": commentBody,
+	})
+	
+	// Debug logging
+	fmt.Printf("DEBUG: Sending comment to Jira with ADF\n")
+	fmt.Printf("DEBUG: URL: %s\n", c.baseURL+"/rest/api/3/issue/"+key+"/comment")
+	fmt.Printf("DEBUG: Payload: %s\n", string(payload))
+	
+	url := c.baseURL + "/rest/api/3/issue/" + key + "/comment"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", c.authHeader)
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	data, _ := io.ReadAll(resp.Body)
+	fmt.Printf("DEBUG: Response status: %d\n", resp.StatusCode)
+	fmt.Printf("DEBUG: Response body: %s\n", string(data))
+	
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("jira: add comment with embedded images failed (%d): %s", resp.StatusCode, truncate(string(data), 512))
+	}
+	
+	return nil
+}
+
+// AddCommentWithEmbeddedFiles adds a comment with embedded files to a Jira issue
+func (c *Client) AddCommentWithEmbeddedFiles(ctx context.Context, key, body string, files []common.FileInfo) error {
+	key = strings.TrimSpace(key)
+	body = strings.TrimSpace(body)
+	if key == "" {
+		return errors.New("jira: issue key is required")
+	}
+	if body == "" && len(files) == 0 {
+		return errors.New("jira: comment body and files are empty")
+	}
+	
+	// First, upload files as attachments
+	var attachmentIds []string
+	var fileNames []string
+	for i, file := range files {
+		if file.Url != "" {
+			// Download the file
+			resp, err := http.Get(file.Url)
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to download file %s: %v\n", file.Url, err)
+				continue
+			}
+			defer resp.Body.Close()
+			
+			if resp.StatusCode != http.StatusOK {
+				fmt.Printf("DEBUG: Failed to download file %s: HTTP %d\n", file.Url, resp.StatusCode)
+				continue
+			}
+			
+			var buf bytes.Buffer
+			_, err = buf.ReadFrom(resp.Body)
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to read file data %s: %v\n", file.Url, err)
+				continue
+			}
+			
+			// Determine file extension from URL or use default
+			filename := file.Name
+			if filename == "" && strings.Contains(file.Url, ".") {
+				parts := strings.Split(file.Url, ".")
+				if len(parts) > 1 {
+					ext := parts[len(parts)-1]
+					// Remove any query parameters from extension
+					if idx := strings.Index(ext, "?"); idx != -1 {
+						ext = ext[:idx]
+					}
+					filename = fmt.Sprintf("telegram_file_%d.%s", i, ext)
+				}
+			}
+			if filename == "" {
+				filename = fmt.Sprintf("telegram_file_%d", i)
+			}
+			
+			// Upload as attachment
+			attachmentId, err := c.AddAttachment(ctx, key, filename, buf.Bytes())
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to upload attachment %s: %v\n", filename, err)
+				continue
+			}
+			
+			attachmentIds = append(attachmentIds, attachmentId)
+			fileNames = append(fileNames, filename)
+			fmt.Printf("DEBUG: Uploaded attachment %s with ID %s\n", filename, attachmentId)
+		}
+	}
+	
+	// Create ADF content for the comment
+	content := []any{}
+	
+	// Add text content if provided
+	if body != "" {
+		paragraph := map[string]any{
+			"type":    "paragraph",
+			"content": []any{},
+		}
+		lines := strings.Split(body, "\n")
+		for i, line := range lines {
+			if i > 0 {
+				paragraph["content"] = append(paragraph["content"].([]any), map[string]any{"type": "hardBreak"})
+			}
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			paragraph["content"] = append(paragraph["content"].([]any), map[string]any{
+				"type": "text",
+				"text": line,
+			})
+		}
+		if len(paragraph["content"].([]any)) == 0 {
+			paragraph["content"] = append(paragraph["content"].([]any), map[string]any{
+				"type": "text",
+				"text": body,
+			})
+		}
+		content = append(content, paragraph)
+	}
+	
+	// Add file attachments as links
+	for i, id := range attachmentIds {
+		if id != "" && i < len(fileNames) {
+			// Create a link to the attachment
+			fileLink := map[string]any{
+				"type": "paragraph",
+				"content": []any{
+					map[string]any{
+						"type": "text",
+						"text": "📎 Вложенный файл: ",
+					},
+					map[string]any{
+						"type": "text",
+						"text": fileNames[i],
+						"marks": []any{
+							map[string]any{
+								"type": "link",
+								"attrs": map[string]any{
+									"href": fmt.Sprintf("%s/secure/attachment/%s/", c.baseURL, id),
+								},
+							},
+						},
+					},
+				},
+			}
+			content = append(content, fileLink)
+		}
+	}
+	
+	commentBody := map[string]any{
+		"type":    "doc",
+		"version": 1,
+		"content": content,
+	}
+	
+	payload, _ := json.Marshal(map[string]any{
+		"body": commentBody,
+	})
+	
+	// Debug logging
+	fmt.Printf("DEBUG: Sending comment to Jira with files\n")
+	fmt.Printf("DEBUG: URL: %s\n", c.baseURL+"/rest/api/3/issue/"+key+"/comment")
+	fmt.Printf("DEBUG: Payload: %s\n", string(payload))
+	
+	url := c.baseURL + "/rest/api/3/issue/" + key + "/comment"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", c.authHeader)
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	data, _ := io.ReadAll(resp.Body)
+	fmt.Printf("DEBUG: Response status: %d\n", resp.StatusCode)
+	fmt.Printf("DEBUG: Response body: %s\n", string(data))
+	
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("jira: add comment with files failed (%d): %s", resp.StatusCode, truncate(string(data), 512))
+	}
+	
+	return nil
 }

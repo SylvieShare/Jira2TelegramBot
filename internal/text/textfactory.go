@@ -206,21 +206,21 @@ func TextJiraCommentReopen(userName, chatTitle string) string {
 
 func TextJiraCommentUserFromTelegram(text string, user *tgbotapi.User, chatTitle, replyText string) string {
 	replyClean := ""
-	if replyText != "" {
-		lines := strings.Split(replyText, "\n")
-		if len(lines) > 5 {
-			replyClean = strings.TrimSpace(strings.Join(lines[3:len(lines)-2], "\n"))
-		} else {
-			replyClean = ""
+	// replyStatus := false
+	if strings.Contains(replyText, TextAnchorReplyJiraToTelegram()) {
+		// replyStatus = true
+		if replyText != "" {
+			lines := strings.Split(replyText, "\n")
+			if len(lines) > 5 {
+				replyClean = strings.TrimSpace(strings.Join(lines[3:len(lines)-2], "\n"))
+			} else {
+				replyClean = ""
+			}
 		}
 	}
 
 	var b strings.Builder
-	if replyText == "" {
-		b.WriteString("💬 Запрос из Telegram")
-	} else {
-		b.WriteString("💬 Ответ из Telegram")
-	}
+	b.WriteString("💬 Сообщение из Telegram")
 	if chatTitle != "" {
 		b.WriteString(" (" + chatTitle + ")\n")
 	} else {
@@ -287,6 +287,9 @@ func TextDescriptionADF(titleIssue string, historyMessages []tgbotapi.Message, u
 	}
 
 	for _, m := range historyMessages {
+		if m.Text == "" {
+			continue
+		}
 		ts := int64(m.Date)
 		dateTime := time.Unix(ts, 0).In(time.Local).Format("02.01.06 15:04")
 		user := BuildFullNameUser(m.From)
