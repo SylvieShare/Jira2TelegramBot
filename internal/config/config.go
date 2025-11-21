@@ -26,6 +26,7 @@ type Config struct {
 	BotPollProcessInterval int
 	HistoryMessagesLimit   int
 	ClosedTicketTTLHours   int
+	ErrorChatID            int
 }
 
 func Load() Config {
@@ -47,6 +48,7 @@ func Load() Config {
 		BotPollProcessInterval: atoi(getenv("POLL_INTERVAL_SECONDS", ""), 10),
 		HistoryMessagesLimit:   atoi(getenv("HISTORY_MESSAGES_LIMIT", ""), 10),
 		ClosedTicketTTLHours:   atoi(getenv("CLOSED_TICKET_TTL_HOURS", ""), 7*24),
+		ErrorChatID:            atoi(getenv("ERROR_CHAT_ID", ""), 0),
 	}
 	if cfg.TelegramBotToken == "" {
 		log.Fatal("TELEGRAM_TOKEN is required")

@@ -93,13 +93,13 @@ func processMediaGroup(ctx *tg.Ctx, group *MediaGroup) {
 		}
 
 		// Collect file URLs from all messages
-		files, err := extractFile(ctx, msg)
+		files, err := ctx.Tg.ExtractFile(msg)
 		if err == nil {
 			allFiles = append(allFiles, files...)
 		}
 
 		// Find the message that replies to the bot
-		if msg.ReplyToMessage != nil && msg.ReplyToMessage.From.UserName == ctx.Bot.Self.UserName {
+		if msg.ReplyToMessage != nil && msg.ReplyToMessage.From.UserName == ctx.Tg.SelfUserName() {
 			messageWithReplay = msg
 		}
 	}
@@ -109,7 +109,7 @@ func processMediaGroup(ctx *tg.Ctx, group *MediaGroup) {
 		// Combine all texts
 		combinedText := strings.Join(allTexts, ", ")
 		replyText := messageWithReplay.ReplyToMessage.Text
-		key := ctx.ProjectKeyRegexp.FindString(replyText)
+		key := ctx.Params.ProjectKeyRegexp.FindString(replyText)
 		if key == "" {
 			ctx.Log.Error("Failed to find project key in reply text", "replyText", replyText)
 			return
@@ -121,14 +121,7 @@ func processMediaGroup(ctx *tg.Ctx, group *MediaGroup) {
 		if commentErr != nil {
 			ctx.Log.Error("Failed to add comment for media group", "error", commentErr)
 		} else {
-			ctx.ReactToMessage(messageWithReplay)
+			ctx.Tg.ReactMessageIsRead(messageWithReplay)
 		}
 	}
 }
-
-// extractFile extracts all file URLs from a Telegram message using the common function
-func extractFile(ctx *tg.Ctx, message *tgbotapi.Message) ([]common.FileInfo, error) {
-	return common.ExtractFile(ctx.Bot, ctx.Log, message)
-}
-
-// Handle document messages (all types)

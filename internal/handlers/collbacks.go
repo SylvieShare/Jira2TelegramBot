@@ -42,7 +42,7 @@ func Callback() tg.HandlerFunc {
 }
 
 func handleReopenCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []string) error {
-	targetStatus := strings.TrimSpace(ctx.ReopenStatus)
+	targetStatus := strings.TrimSpace(ctx.Params.ReopenStatus)
 	if targetStatus == "" || len(parts) < 2 {
 		return nil
 	}
@@ -54,10 +54,7 @@ func handleReopenCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []strin
 	chatID := cb.Message.Chat.ID
 	chatTitle := cb.Message.Chat.Title
 	if ctx.TicketStore.Get(issueKey) == nil {
-		msg := tgbotapi.NewMessage(chatID, "⏳ Тикет <code>"+issueKey+"</code> слишком старый, его нельзя переоткрыть. Создайте новый через /create_issue.")
-		msg.ParseMode = tgbotapi.ModeHTML
-		_, _ = ctx.Bot.Send(msg)
-		return nil
+		return ctx.Tg.SendMessageHTML("⏳ Тикет <code>"+issueKey+"</code> слишком старый, его нельзя переоткрыть. Создайте новый через /create_issue.")
 	}
 
 	if err := ctx.Jira.TransitionIssueToStatus(ctx.Std, issueKey, targetStatus); err != nil {
@@ -73,7 +70,7 @@ func handleReopenCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []strin
 		ctx.Log.Error("jira add comment failed", "key", issueKey, "err", err)
 	}
 
-	return processGetIssue(ctx, issueKey, chatID)
+	return processGetIssue(ctx, issueKey)
 }
 
 func handleStatusCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []string) error {
@@ -85,8 +82,7 @@ func handleStatusCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []strin
 		return nil
 	}
 
-	chatID := cb.Message.Chat.ID
-	return processGetIssue(ctx, issueKey, chatID)
+	return processGetIssue(ctx, issueKey)
 }
 
 func handleAddInfoCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []string) error {

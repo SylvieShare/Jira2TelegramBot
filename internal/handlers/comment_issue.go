@@ -20,7 +20,7 @@ func ReplyBotForComment() tg.HandlerFunc {
 			}
 
 			ctx.Log.Info("Comment added successfully")
-			ctx.ReactToMessage(message)
+			ctx.Tg.ReactCurrentMessageIsRead()
 			return nil
 		}
 		return nil

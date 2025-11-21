@@ -34,6 +34,11 @@ func TextAnchorReplyStatusToJira() string {
 
 // TextErrorCreateTicket возвращает человеко-понятное описание ошибки создания тикета.
 func TextErrorCreateTicket(err error) string {
+	return "Не удалось создать тикет"
+}
+
+// TextErrorCreateTicket возвращает человеко-понятное описание ошибки создания тикета.
+func TextErrorCreateTicketDebug(err error) string {
 	msg := "неизвестная ошибка"
 	if err != nil {
 		msg = err.Error()

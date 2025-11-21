@@ -17,7 +17,7 @@ func extractFilesFromHistory(ctx *tg.Ctx, messages []tgbotapi.Message) ([]common
 	var allFiles []common.FileInfo
 
 	for _, msg := range messages {
-		files, err := common.ExtractFile(ctx.Bot, ctx.Log, &msg)
+		files, err := ctx.Tg.ExtractFile(&msg)
 		if err != nil {
 			ctx.Log.Warn("Failed to extract file from message", "error", err)
 			continue
@@ -29,25 +29,22 @@ func extractFilesFromHistory(ctx *tg.Ctx, messages []tgbotapi.Message) ([]common
 }
 
 func CreateIssue() tg.HandlerFunc {
-	return func(c *tg.Ctx) error {
-		messagesInHistory := c.HistoryMessages.GetMessages(c.Upd.Message.Chat.ID)
-		titleIssue := text.TextTitleIssue(c.Upd.Message.Chat.Title)
+	return func(ctx *tg.Ctx) error {
+		messagesInHistory := ctx.HistoryMessages.GetMessages(ctx.Upd.Message.Chat.ID)
+		titleIssue := text.TextTitleIssue(ctx.Upd.Message.Chat.Title)
 		descriptionADF := text.TextDescriptionADF(titleIssue, messagesInHistory, "")
-		key, _, err := c.Jira.CreateIssue(c.Std, titleIssue, descriptionADF)
+		key, _, err := ctx.Jira.CreateIssue(ctx.Std, titleIssue, descriptionADF)
 		if err != nil {
-			_, sendErr := c.Bot.Send(tgbotapi.NewMessage(c.Upd.Message.Chat.ID, text.TextErrorCreateTicket(err)))
-			if sendErr != nil {
-				return sendErr
-			}
-			return nil
+			ctx.Tg.SendMessageErrorChat(text.TextErrorCreateTicketDebug(err))
+			return ctx.Tg.SendMessage(text.TextErrorCreateTicket(err))
 		}
-		c.Log.Info("Issue created", "key", key)
+		ctx.Log.Info("Issue created", "key", key)
 
-		payload := strings.TrimSpace(tg.StripCommandText(c.Upd.Message.Text))
-		payload, _ = strings.CutPrefix(payload, "@"+c.Bot.Self.UserName)
+		payload := strings.TrimSpace(tg.StripCommandText(ctx.Upd.Message.Text))
+		payload, _ = strings.CutPrefix(payload, "@"+ctx.Tg.SelfUserName())
 		storeUsername := ""
-		if c.Upd.Message.From != nil {
-			storeUsername = c.Upd.Message.From.UserName
+		if ctx.Upd.Message.From != nil {
+			storeUsername = ctx.Upd.Message.From.UserName
 		}
 		storeName := ""
 		if payload != "" {
@@ -62,12 +59,12 @@ func CreateIssue() tg.HandlerFunc {
 			storeName = strings.TrimSpace(strings.Join(fields, " "))
 		}
 
-		c.TicketStore.Add(c.Upd.Message.Chat.ID, key, "", storeName, storeUsername)
+		ctx.TicketStore.Add(ctx.Upd.Message.Chat.ID, key, "", storeName, storeUsername)
 
-		errGetIssue := processGetIssue(c, key, c.Upd.Message.Chat.ID)
+		errGetIssue := processGetIssue(ctx, key)
 
 		// Extract and attach files from message history
-		AddAttachment(c, messagesInHistory, key)
+		AddAttachment(ctx, messagesInHistory, key)
 
 		return errGetIssue
 	}

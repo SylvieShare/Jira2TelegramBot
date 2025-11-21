@@ -35,72 +35,42 @@ func GetIssue() tg.HandlerFunc {
 			return sendChatTicketsDigest(c)
 		}
 
-		return processGetIssue(c, key, c.Upd.Message.Chat.ID)
+		return processGetIssue(c, key)
 	}
 }
 
-func processGetIssue(c *tg.Ctx, key string, chatId int64) error {
+func processGetIssue(c *tg.Ctx, key string) error {
 	ticket := c.TicketStore.Get(key)
 	if ticket == nil {
-		msg := tgbotapi.NewMessage(chatId, "⚠️ Тикет <code>"+key+"</code> был создан не в этом боте")
-		msg.ParseMode = tgbotapi.ModeHTML
-		_, _ = c.Bot.Send(msg)
-		return nil
+		return c.Tg.SendMessageHTML("⚠️ Тикет <code>" + key + "</code> был создан не в этом боте")
 	}
 
 	info, err := c.Jira.GetIssueStatus(c.Std, key)
 	if err != nil {
 		if errors.Is(err, jira.ErrNotFound) {
-			msg := tgbotapi.NewMessage(chatId, text.TextGetStatusNotFound(key))
-			msg.ParseMode = tgbotapi.ModeHTML
-			_, sendErr := c.Bot.Send(msg)
-			if sendErr != nil {
-				return sendErr
-			}
-			return nil
+			return c.Tg.SendMessageHTML(text.TextGetStatusNotFound(key))
 		}
-		msgText := fmt.Sprintf("Не удалось получить информацию по тикету %s: %v", key, err)
-		_, sendErr := c.Bot.Send(tgbotapi.NewMessage(chatId, msgText))
-		if sendErr != nil {
-			return sendErr
-		}
-		return nil
+		return c.Tg.SendMessage(fmt.Sprintf("Не удалось получить информацию по тикету %s: %v", key, err))
 	}
 
-	msg := tgbotapi.NewMessage(chatId, text.TextGetStatus(info, ticket.Name, ticket.CreatorUsername))
-	msg.ParseMode = tgbotapi.ModeHTML
-
 	var rows [][]tgbotapi.InlineKeyboardButton
-
-	if c.ReopenStatus == "" || !text.IsReadyStatus(info.Status) {
+	if c.Params.ReopenStatus != "" && text.IsReadyStatus(info.Status) {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Переоткрыть", fmt.Sprintf("%s|%s", actionReopen, info.Key)),
+		))
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Обновить статус", fmt.Sprintf("%s|%s", actionStatus, info.Key)),
 		))
-		// rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		// 	tgbotapi.NewInlineKeyboardButtonData("Дополнить информацию", fmt.Sprintf("%s|%s", actionAddInfo, info.Key)),
-		// ))
 	}
 
-	if c.ReopenStatus != "" && text.IsReadyStatus(info.Status) {
-		button := tgbotapi.NewInlineKeyboardButtonData("Переоткрыть", fmt.Sprintf("%s|%s", actionReopen, info.Key))
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(button))
-	}
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-
-	_, err = c.Bot.Send(msg)
 	c.TicketStore.UpdateStatus(info.Key, info.Status)
-	return err
+	return c.Tg.SendMessageHTML(text.TextGetStatus(info, ticket.Name, ticket.CreatorUsername), rows...)
 }
 
 func sendChatTicketsDigest(c *tg.Ctx) error {
 	chatID := c.Upd.Message.Chat.ID
 	var tickets []tg.CreatedTicket
-	if c.TicketStore != nil {
-		tickets = c.TicketStore.ListByChatID(chatID)
-	}
+	tickets = c.TicketStore.ListByChatID(chatID)
 
-	msg := tgbotapi.NewMessage(chatID, text.TextTelegramTicketsMessage(tickets, c.Upd.Message.Chat.Title))
-	msg.ParseMode = tgbotapi.ModeHTML
-	_, err := c.Bot.Send(msg)
-	return err
+	return c.Tg.SendMessageHTML(text.TextTelegramTicketsMessage(tickets, c.Upd.Message.Chat.Title))
 }

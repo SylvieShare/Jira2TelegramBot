@@ -23,7 +23,7 @@ func (d *Dispatcher) Dispatch(ctx *Ctx) error {
 	if update.Message != nil {
 		message := update.Message
 		// Проверяем создание задачи
-		if strings.HasPrefix(message.Text, "/create_issue") || strings.HasPrefix(message.Text, "@"+ctx.Bot.Self.UserName) {
+		if strings.HasPrefix(message.Text, "/create_issue") || strings.HasPrefix(message.Text, "@"+ctx.Tg.SelfUserName()) {
 			return d.OnCreateIssue(ctx)
 		}
 
@@ -39,7 +39,7 @@ func (d *Dispatcher) Dispatch(ctx *Ctx) error {
 				return d.OnMediaGroup(ctx)
 			}
 			// Проверяем ответ на задачу - есть реплай, автор релпая бот, в сообщении есть ключ задачи и якорь для ответа
-			if message.ReplyToMessage != nil && message.ReplyToMessage.From.UserName == ctx.Bot.Self.UserName {
+			if message.ReplyToMessage != nil && message.ReplyToMessage.From.UserName == ctx.Tg.SelfUserName() {
 				if strings.Contains(message.ReplyToMessage.Text, text.TextAnchorReplyJiraToTelegram()) ||
 					strings.Contains(message.ReplyToMessage.Text, text.TextAnchorReplyStatusToJira()) {
 					return d.OnReplyBotForComment(ctx)
