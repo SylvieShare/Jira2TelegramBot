@@ -69,8 +69,7 @@ func processGetIssue(c *tg.Ctx, key string) error {
 
 func sendChatTicketsDigest(c *tg.Ctx) error {
 	chatID := c.Upd.Message.Chat.ID
-	var tickets []tg.CreatedTicket
-	tickets = c.TicketStore.ListByChatID(chatID)
+	tickets := c.TicketStore.ListByChatID(chatID)
 
 	return c.Tg.SendMessageHTML(text.TextTelegramTicketsMessage(tickets, c.Upd.Message.Chat.Title))
 }
