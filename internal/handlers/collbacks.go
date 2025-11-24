@@ -13,7 +13,6 @@ import (
 const (
 	actionReopen  = "reopen"
 	actionStatus  = "status"
-	actionAddInfo = "addinfo"
 )
 
 func Callback() tg.HandlerFunc {
@@ -22,7 +21,7 @@ func Callback() tg.HandlerFunc {
 		if cb == nil {
 			return nil
 		}
-		_, _ = ctx.Bot.Request(tgbotapi.NewCallback(cb.ID, ""))
+		_ = ctx.Tg.EmptyCallback()
 
 		data := strings.Split(cb.Data, "|")
 		if len(data) == 0 {
@@ -33,8 +32,6 @@ func Callback() tg.HandlerFunc {
 			return handleReopenCallback(ctx, cb, data)
 		case actionStatus:
 			return handleStatusCallback(ctx, cb, data)
-		case actionAddInfo:
-			return handleAddInfoCallback(ctx, cb, data)
 		default:
 			return nil
 		}
@@ -51,7 +48,6 @@ func handleReopenCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []strin
 		return nil
 	}
 
-	chatID := cb.Message.Chat.ID
 	chatTitle := cb.Message.Chat.Title
 	if ctx.TicketStore.Get(issueKey) == nil {
 		return ctx.Tg.SendMessageHTML("⏳ Тикет <code>"+issueKey+"</code> слишком старый, его нельзя переоткрыть. Создайте новый через /create_issue.")
@@ -59,8 +55,7 @@ func handleReopenCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []strin
 
 	if err := ctx.Jira.TransitionIssueToStatus(ctx.Std, issueKey, targetStatus); err != nil {
 		ctx.Log.Error("jira transition failed", "key", issueKey, "status", targetStatus, "err", err)
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Не удалось переоткрыть тикет %s: %v", issueKey, err))
-		_, _ = ctx.Bot.Send(msg)
+		_ = ctx.Tg.SendMessage(fmt.Sprintf("Не удалось переоткрыть тикет %s: %v", issueKey, err))
 		return err
 	}
 
@@ -83,23 +78,4 @@ func handleStatusCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []strin
 	}
 
 	return processGetIssue(ctx, issueKey)
-}
-
-func handleAddInfoCallback(ctx *tg.Ctx, cb *tgbotapi.CallbackQuery, parts []string) error {
-	chatID := cb.Message.Chat.ID
-	var issueKey string
-	if len(parts) > 1 {
-		issueKey = strings.TrimSpace(parts[1])
-	}
-
-	msgText := ""
-	if issueKey != "" {
-		msgText = fmt.Sprintf("%s\n%s",
-			issueKey,
-			text.TextAnchorReplyStatusToJira(),
-		)
-	}
-
-	_, err := ctx.Bot.Send(tgbotapi.NewMessage(chatID, msgText))
-	return err
 }

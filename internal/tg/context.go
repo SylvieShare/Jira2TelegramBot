@@ -85,6 +85,12 @@ func (bot *BotTgAction) SendMessage(text string) error {
 	return err
 }
 
+func (bot *BotTgAction) EmptyCallback() error {
+	id := bot.ctx.Upd.CallbackQuery.ID
+	_, err := bot.tgApi.Request(tgbotapi.NewCallback(id, ""))
+	return err
+}
+
 func (bot *BotTgAction) SendMessageHTML(text string, buttons ...[]tgbotapi.InlineKeyboardButton) error {
 	msg := tgbotapi.NewMessage(bot.CurrentChatId(), text)
 	msg.ParseMode = tgbotapi.ModeHTML

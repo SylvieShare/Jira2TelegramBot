@@ -9,7 +9,7 @@ import (
 func ReplyBotForComment() tg.HandlerFunc {
 	return func(ctx *tg.Ctx) error {
 		message := ctx.Upd.Message
-		keyInMessageReply := ctx.ProjectKeyRegexp.FindString(message.ReplyToMessage.Text)
+		keyInMessageReply := ctx.Params.ProjectKeyRegexp.FindString(message.ReplyToMessage.Text)
 		if keyInMessageReply != "" {
 			commentText := text.TextJiraCommentUserFromTelegram(message.Text, message.From, message.Chat.Title, message.ReplyToMessage.Text)
 			commentErr := ctx.Jira.AddComment(ctx.Std, keyInMessageReply, commentText)
